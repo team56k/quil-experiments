@@ -1,61 +1,61 @@
 (ns ^:figwheel-always investigation.core
   (:require [quil.core :as q :include-macros true]
             [quil.middleware :as m]
-            [reagent.core :as reagent :refer [atom]]))
+            [goog.string.StringBuffer]
+            [reagent.core :as reagent :refer [atom]])
+  (:require-macros [investigation.component :as component]))
 
-(def tick-flip-1
-  ^{:visible-name "tick-flip-1"}
-  (fn [state]
-    (if (< (:r state) 300)
-      (update-in state [:r] + 5.0)
-      {:r 0.0
-       :col (if (= 0 (:col state)) 255 0)})))
+(defn log [o]
+  (.log js/console (pr-str o)))
+
+(defn log-o [o] (.log js/console o))
 
 
-(def tick-flip-2
-  ^{:visible-name "tick-flip-2"}
-  (fn [state]
-    (if (< (:r state) 100)
-      (update-in state [:r] + 5.0)
-      {:r 0.0
-       :col (if (= 0 (:col state)) 100 0)})))
+(defn route-signal! [component key signal-fn]
+  (let [signal-router (:signals component)]
+    (swap! signal-router assoc key signal-fn)))
 
-(def draw-lines-1
-  ^{:visible-name "draw-lines-1"}
-  (fn [state]
-    (let [hw (* 0.4 (q/width))
-          hh (* 0.4 (q/height))
-          num-lines (quot (q/width) 10)
-          make-line (fn []
-                      (let [rand-ang (q/random 0 q/TWO-PI)
-                            r (:r state)
-                            x2 (+ hh (* (q/sin rand-ang) r))
-                            y2 (+ hw (* (q/cos rand-ang) r))]
-                        [:line
-                         {:x1 hh :y1 hw :x2 x2 :y2 y2}
-                         {:stroke (:col state)}]))]
+(defn make-uuid
+  []
+  (letfn [(f [] (.toString (rand-int 16) 16))
+          (g [] (.toString  (bit-or 0x8 (bit-and 0x3 (rand-int 15))) 16))]
+    (UUID. (.toString
+             (goog.string.StringBuffer.
+               (f) (f) (f) (f) (f) (f) (f) (f) "-" (f) (f) (f) (f)
+               "-4" (f) (f) (f) "-" (g) (f) (f) (f) "-"
+               (f) (f) (f) (f) (f) (f) (f) (f) (f) (f) (f) (f))))))
 
-    (assoc state :shapes (map make-line (range num-lines))))))
+(defn make-component [component]
+  {:component component
+   :id (make-uuid)})
 
-(def draw-lines-2
-  ^{:visible-name "draw-lines-2"}
-  (fn [state]
-    (let [hw (* 0.6 (q/width))
-          hh (* 0.6 (q/height))
-          num-lines (quot (q/width) 100)
-          make-line (fn []
-                      (let [rand-ang (q/random 0 q/TWO-PI)
-                            r (:r state)
-                            x2 (+ hh (* (q/sin rand-ang) r))
-                            y2 (+ hw (* (q/cos rand-ang) r))]
-                        [:line
-                         {:x1 hh :y1 hw :x2 x2 :y2 y2}
-                         {:stroke (:col state)}]))]
+(component/defcomponent tick-flip-1
+                        {:radius-factor #(identity 100.0)}
+                        (if (< (:r state) 300)
+                          (update-in state [:r] + (signal :radius-factor))
+                          {:r 0.0
+                           :col (if (= 0 (:col state)) 255 0)}))
 
-      (assoc state :shapes (map make-line (range num-lines))))))
+(route-signal! tick-flip-1 :radius-factor #(identity 1.0))
 
-(def pipeline-options [[tick-flip-1 tick-flip-2] [draw-lines-1 draw-lines-2]])
-(def pipeline (atom [tick-flip-1 draw-lines-1]))
+(component/defcomponent
+  draw-lines-1 {}
+  (let [hw (* 0.4 (q/width))
+        hh (* 0.4 (q/height))
+        num-lines (quot (q/width) 10)
+        make-line (fn []
+                    (let [rand-ang (q/random 0 q/TWO-PI)
+                          r (:r state)
+                          x2 (+ hh (* (q/sin rand-ang) r))
+                          y2 (+ hw (* (q/cos rand-ang) r))]
+                      [:line
+                       {:x1 hh :y1 hw :x2 x2 :y2 y2}
+                       {:stroke (:col state)}]))]
+
+    (assoc state :shapes (map make-line (range num-lines)))))
+
+(def pipeline (atom [(make-component tick-flip-1)
+                     (make-component draw-lines-1)]))
 
 ;; -- plumbing
 
@@ -69,7 +69,10 @@
             (:y2 params))))
 
 (defn run-pipeline [state]
-  ((apply comp @pipeline) state))
+  (let [transformers (map #(-> % :component :transformer) @pipeline)
+        t (or (:t state) 0)
+        state-with-t (assoc state :t (inc t))]
+    ((apply comp transformers) state-with-t)))
 
 (defn setup []
   (q/frame-rate 30)
@@ -87,23 +90,17 @@
              :draw draw-state
              :middleware [m/fun-mode])
 
-(defn fn-name [f]
-  (-> f meta :visible-name))
-
 (defn pipeline-stage [idx stage]
-  (let [active-fn (nth @pipeline idx)]
-    ^{:key idx} [:li
-                 {:on-click (fn [_]
-                              (let [other-fn (first (remove #(= % active-fn) stage))
-                                    swapped-pipeline (assoc @pipeline idx other-fn)]
-                                (reset! pipeline swapped-pipeline)))}
-                 (fn-name active-fn)]))
+  (let [component (:component stage)
+        id (:id stage)
+        name (:name component)]
+    ^{:key idx} [:li name " :: " id]))
 
 (defn controls []
   [:div
    [:h1 "Pipeline:"]
    [:ul
-    (doall (map-indexed pipeline-stage pipeline-options))]])
+    (doall (map-indexed pipeline-stage @pipeline))]])
 
 (reagent/render-component [controls] (. js/document (getElementById "controls")))
 
