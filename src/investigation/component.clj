@@ -1,15 +1,15 @@
 (ns investigation.component)
 
-(defmacro defcomponent [name signals expression]
+(defmacro defcomponent [name inlets expression]
   `(def ~name
-     (let [signals# (atom ~signals)]
-       {:name ~(str name)
-        :signals signals#
-        :transformer (fn [~(quote state)]
-                       (let [~(quote signal) (fn [k#]
-                                               (if (contains? @signals# k#)
-                                                 ((k# @signals#) ~(quote state))
-                                                 ~(quote state)))]
-                         ~expression))
-        })))
+     {:name ~(str name)
+      :inlets ~inlets
+      :transformer (fn [~'connected-inlets ~'state]
+                     (let [~'<< (fn [inlet-key#]
+                                      (if (contains? ~'connected-inlets inlet-key#)
+                                        ((inlet-key# ~'connected-inlets) ~'state)
+                                        ~'state))]
+                       ~expression))
+      }))
 
+;(macroexpand-1 '(defcomponent foo {:bar #(identity 1)} (identity 2)))
