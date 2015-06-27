@@ -5,7 +5,7 @@
      {:name ~(str name)
       :inlets ~inlets
       :transformer (fn [~'connected-inlets ~'state]
-                     (let [~'<< (fn [inlet-key#]
+                     (let [~'read-inlet (fn [inlet-key#]
                                       (if (contains? ~'connected-inlets inlet-key#)
                                         ((inlet-key# ~'connected-inlets) ~'state)
                                         ~'state))]

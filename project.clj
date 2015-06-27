@@ -10,6 +10,8 @@
                  [reagent "0.5.0-alpha3"]
                  [keybind "1.0.0"]
                  [com.lucasbradstreet/cljs-uuid-utils "1.0.1"]
+                 [figwheel "0.3.3"]
+                 [figwheel-sidecar "0.3.3"]
                  [quil "2.2.6"]]
 
   :plugins [[lein-cljsbuild "1.0.5"]
@@ -43,7 +45,7 @@
              :css-dirs ["resources/public/css"] ;; watch and update CSS
 
              ;; Start an nREPL server into the running figwheel process
-             ;; :nrepl-port 7888
+             :nrepl-port 7888
 
              ;; Server Ring Handler (optional)
              ;; if you want to embed a ring handler into the figwheel http-kit

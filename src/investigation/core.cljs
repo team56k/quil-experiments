@@ -10,6 +10,12 @@
 
 (defn log-o [o] (.log js/console o))
 
+(def ui-state (atom {"my-slider-1" 5
+                     "my-slider-2" 5}))
+
+(def ui-elements (atom
+                   [{:type :slider :name "my-slider-1" :min 0 :max 10}
+                    {:type :slider :name "my-slider-2" :min 0 :max 10}]))
 
 (defn connect-inlet [component-instance key signal-fn]
   (let [transformer (:transformer component-instance)
@@ -31,23 +37,24 @@
 (defn make-component [component]
   (let [inlets (:inlets component)
         transformer (:transformer component)]
-    (log component)
     (assoc component
       :id (make-uuid)
       :bound-transformer (partial transformer inlets))))
 
-(component/defcomponent tick-flip-1
-                        {:radius-factor #(identity 10.0)}
-                        (if (< (:r state) 300)
-                          (update-in state [:r] + (<< :radius-factor))
-                          {:r 0.0
-                           :col (if (= 0 (:col state)) 255 0)}))
+(component/defcomponent
+  tick-flip-1
+  {:radius-factor #(identity 10.0)}
+  (if (< (:r state) 300)
+    (update-in state [:r] + (read-inlet :radius-factor))
+    {:r 0.0
+     :col (if (= 0 (:col state)) 255 0)}))
 
 (component/defcomponent
-  draw-lines-1 {}
+  draw-lines-1
+  {:line-factor #(identity 10)}
   (let [hw (* 0.4 (q/width))
         hh (* 0.4 (q/height))
-        num-lines (quot (q/width) 10)
+        num-lines (quot (q/width) (read-inlet :line-factor))
         make-line (fn []
                     (let [rand-ang (q/random 0 q/TWO-PI)
                           r (:r state)
@@ -61,8 +68,12 @@
 
 (def pipeline (atom [(->
                        (make-component tick-flip-1)
-                       (connect-inlet :radius-factor #(identity 1.0)))
-                     (make-component draw-lines-1)]))
+                       (connect-inlet :radius-factor #(get @ui-state "my-slider-1")))
+                     (->
+                       (make-component draw-lines-1)
+                       (connect-inlet :line-factor #(get @ui-state "my-slider-2")))]))
+
+
 
 ;; -- plumbing
 
@@ -97,16 +108,57 @@
              :draw draw-state
              :middleware [m/fun-mode])
 
+(defn mape [f coll]
+  (doall (map f coll)))
+
+(defn get-value [e]
+  (.-value (.-target e)))
+
+(defn indices [pred coll]
+  (keep-indexed #(when (pred %2) %1) coll))
+
+(defn index-of [coll elem]
+  (first (indices #(= elem %) coll)))
+
+(defn inlet-selector [component-instance inlet-name]
+  ^{:key inlet-name}
+  [:select {:on-change (fn [e]
+                         (let [value (get-value e)
+                               component-idx (index-of @pipeline component-instance)
+                               new-update-fn #(get @ui-state value)
+                               new-component (connect-inlet component-instance inlet-name new-update-fn)]
+                           (swap! pipeline assoc-in [component-idx] new-component)))}
+   (mape #(vec ^{:key %} [:option {:value %} %]) (keys @ui-state))])
+
 (defn pipeline-stage [idx component-instance]
   (let [id (:id component-instance)
-        name (:name component-instance)]
-    ^{:key idx} [:li name " :: " id]))
+        name (:name component-instance)
+        inlets (keys (:inlets component-instance))]
+    ^{:key idx}
+    [:li name " :: " id " <- " (mape #(inlet-selector component-instance %) inlets)]))
+
+
+
+(defn ui-element [element]
+  (let [name (:name element)]
+    ^{:key name}
+    [:input {:type "range"
+             :min (:min element)
+             :max (:max element)
+             :on-change (fn [e]
+                          (let [value (get-value e)]
+                            (swap! ui-state assoc name value)))}]))
 
 (defn controls []
   [:div
-   [:h1 "Pipeline:"]
-   [:ul
-    (doall (map-indexed pipeline-stage @pipeline))]])
+   [:div#controls
+    [:h1 "Pipeline:"]
+    [:ul
+     (doall (map-indexed pipeline-stage @pipeline))]
+    [:h1 "UI"]
+    [:h4 "State: " (pr-str @ui-state)]
+    [:h4 "Elements: "]
+    (mape ui-element @ui-elements)]])
 
 (reagent/render-component [controls] (. js/document (getElementById "controls")))
 
